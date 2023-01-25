@@ -1,0 +1,2 @@
+wget  -P /usr/lib/delta/jars/ "https://repo1.maven.org/maven2/org/apache/spark/spark-avro_2.12/3.1.3/spark-avro_2.12-3.1.3.jar"
+wget  -P /usr/lib/delta/jars/ "https://repo1.maven.org/maven2/org/apache/hudi/hudi-spark3-bundle_2.12/0.12.2/hudi-spark3-bundle_2.12-0.12.2.jar"
