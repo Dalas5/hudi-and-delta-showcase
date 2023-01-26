@@ -704,7 +704,7 @@ TBLPROPERTIES (
 Time taken: 0.079 seconds, Fetched: 43 row(s)
 ```
 
-The content of both tables is the same after full load and is shown below. Notice they are exactly the same for the first load.
+The content of both tables is the same after full load and is shown below.
 
 ```scala
 spark.sql("select * from hudi_mor_ro").show(numRows=10, truncate=0, vertical=true)
@@ -916,6 +916,8 @@ cdcTsDF.write.format("hudi")
 ```
 
 The table hudi_mor has the same old content for a very small time (as the data is small for the demo and it gets compacted soon), but the table hudi_mor_rt gets populated with the latest data as soon as the merge command exists successfully.
+
+Notice the value for the "samsung" record in the *hudi_mor_ro* table is still **20** but in the *hudi_mor_rt* table, it is already up to date with the value of **201**. Also, the added "htc" row appears just in the *hudi_mor_rt* table.
 
 **Read Optimized table**
 
