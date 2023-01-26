@@ -1157,6 +1157,89 @@ While the underlying storage format remains parquet, ACID is managed via the mea
 
 # Using Delta Lake
 
+For the following code and showcase, you can find the complete code in the notebook: [Delta-test-nb.ipynb](/Notebooks/Delta-test-nb.ipynb). Note that this notebook runs on a Databricks cluster Runtime 9.1
+
+The backfill data is read using the code below.
+
+```python
+full_load = "gs://data-lake-cdc/data/demo_hudi_delta_test/2023/01/12/04/04/8c0972982087b235becf90b60a52554e7f3774ff_mysql-backfill-fulldump_-1046201224_6_0.avro"
+cdc_load = "gs://data-lake-cdc/data/demo_hudi_delta_test/2023/01/12/04/10/8c0972982087b235becf90b60a52554e7f3774ff_mysql-cdc-binlog_-1046201224_3_0.avro"
+
+fullDF = spark.read.format("avro").load(full_load).select("payload.*", "*")
+deltaTablePath = "gs://data-lake-cdc/data/delta_table"
+fullDF.write.format("delta").mode("overwrite").save(deltaTablePath)
+```
+
+Using the below command in the SQL interface in the Databricks notebook, we can create a Hive External Table, the “using delta” keyword contains the definition of the underlying SERDE and FILE format and needs not to be mentioned specifically.
+
+```sql
+%sql
+DROP TABLE IF EXISTS delta_table;
+create table delta_table
+using delta
+location "gs://data-lake-cdc/data/delta_table";
+```
+
+The DDL of the table is shown below.
+
+```sql
+%sql
+show create table delta_table
+```
+
+![show create delta table](/images/show-create-delta-table.png)
+
+The table as expected contains all the records as in the full load file.
+
+```sql
+%sql
+select * from delta_table
+```
+
+![full load delta](/images/fullload-delta.png)
+
+The below commands read the cdc data and saves it in a temp view in Hive.
+
+```python
+cdc_load = "gs://data-lake-cdc/data/demo_hudi_delta_test/2023/01/12/04/10/8c0972982087b235becf90b60a52554e7f3774ff_mysql-cdc-binlog_-1046201224_3_0.avro"
+cdc_DF = spark.read.format("avro").load(cdc_load).select("payload.*", "*")
+cdc_DF.createOrReplaceTempView("temp")
+```
+
+Below is a MERGE command that upserts the cdc data into the Hive table. It has been executed in a SQL cell, however, it can also be executed with spark.sql() method as well.
+
+```sql
+%sql
+MERGE INTO delta_table target
+USING 
+(SELECT latest_changes.pk_id, name, value, updated_at, created_at, uuid, read_timestamp, source_timestamp, object, read_method, stream_name, schema_key, sort_keys,   source_metadata, payload
+  FROM temp latest_changes
+ INNER JOIN (
+   SELECT pk_id,  max(updated_at) AS MaxDate
+   FROM temp
+   GROUP BY pk_id
+) cm ON latest_changes.pk_id = cm.pk_id AND latest_changes.updated_at = cm.MaxDate) as source
+ON source.pk_id == target.pk_id
+WHEN MATCHED THEN UPDATE SET *
+WHEN NOT MATCHED  THEN INSERT *
+```
+
+The content of the delta table in Hive after the Merge command is updated correctly.
+![delta table hive updated](/images/delta-table-merged.png)
+
+Like Hudi, the underlying file storage format is “parquet” in case of Delta Lake as well. The Delta provides ACID capability with logs and versioning. 
+
+After the full load and merge, the GCS Bucket looks like this.
+![delta bucket](/images/delta-bucket.png)
+
+Delta Log contains JSON formatted log that has information regarding the schema and the latest files after each commit.
+
+![delta logs](/images/delta-logs.png)
+
+
+In the case of CDC Merge, since multiple records can be inserted/updated or deleted. The content of the initial parquet file is split into multiple smaller parquet files and those smaller files are rewritten. If the table were partitioned, the CDC data corresponding to the updated partition only would be affected. The initial parquet file still exists in the folder but is removed from the new log file. The file can be physically removed if we run VACUUM on this table. These smaller files can also be concatenated with the use of OPTIMIZE command.
+
+
 
 ## References
 * https://blog.searce.com/giving-a-spin-to-cloud-datastream-the-new-serverless-cdc-offering-on-google-cloud-114f5132d3cf
